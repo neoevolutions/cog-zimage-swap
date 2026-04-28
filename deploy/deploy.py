@@ -140,6 +140,28 @@ def fmt_offer(o: dict) -> str:
 
 # -------------------- provisioning --------------------
 
+def _onstart_cmd() -> str:
+    """Boot cog's HTTP server inside the container.
+
+    vast.ai never runs the docker image's ENTRYPOINT/CMD — it only runs its
+    own SSH bootstrap shim and expects the user to invoke their workload via
+    --onstart-cmd. Without this, the container is a dead box: no cog, no
+    ComfyUI (cog's setup() is what spawns ComfyUI as a subprocess).
+
+    The command:
+      - cd /src so cog finds predict.py and workflows/headswap.json
+      - setsid -f detaches into a new session so vast.ai's bootstrap returns
+      - redirects to /var/log/cog.log so failures are diagnosable via SSH
+      - python comes from pyenv shims set up at image build time
+    """
+    return (
+        "setsid -f bash -c "
+        "'cd /src; exec python -m cog.server.http "
+        "--host 0.0.0.0 --port 5000 "
+        "> /var/log/cog.log 2>&1 < /dev/null'"
+    )
+
+
 def create_instance(offer_id: int, image: str, disk_gb: int) -> int:
     print(f">>> creating instance from offer {offer_id} with image {image}")
     out = vastai(
@@ -147,11 +169,31 @@ def create_instance(offer_id: int, image: str, disk_gb: int) -> int:
         "--image", image,
         "--disk", str(disk_gb),
         "--ssh",
-        "--onstart-cmd", "bash -c 'echo ready > /tmp/cog_ready'",
+        # Expose cog API + ComfyUI UI publicly via vast.ai's port mapping.
+        # Host port = container port (vast.ai may remap; check inst metadata).
+        "-p", "5000:5000",
+        "-p", "8188:8188",
+        "--onstart-cmd", _onstart_cmd(),
     )
     if not isinstance(out, dict) or "new_contract" not in out:
         sys.exit(f"vastai create returned unexpected payload: {out}")
     return int(out["new_contract"])
+
+
+def public_endpoints(instance_id: int) -> dict[str, str]:
+    """Return {container_port: 'http://host:port'} from vast.ai port mappings."""
+    inst = get_instance(instance_id)
+    public_ip = inst.get("public_ipaddr")
+    ports = inst.get("ports") or {}
+    out: dict[str, str] = {}
+    for cport, mapping in ports.items():
+        # cport like '5000/tcp'; mapping is a list of {HostIp, HostPort} or None
+        if not mapping or not public_ip:
+            continue
+        host_port = mapping[0].get("HostPort") if isinstance(mapping, list) else None
+        if host_port:
+            out[cport.split("/")[0]] = f"http://{public_ip}:{host_port}"
+    return out
 
 
 def get_instance(instance_id: int) -> dict:
@@ -319,10 +361,20 @@ def cmd_run(args: argparse.Namespace) -> int:
     open_tunnel(ssh_host, ssh_port, cfg["ssh_key"], cfg["local_port"])
     health_check(cfg["local_port"], cfg["health_check_timeout_min"])
 
+    public = public_endpoints(instance_id)
+
     print()
     print(f"  instance:   {instance_id}")
     print(f"  ssh:        ssh -i {cfg['ssh_key']} -p {ssh_port} root@{ssh_host}")
-    print(f"  tunnel:     http://localhost:{cfg['local_port']}")
+    print(f"  tunnel:     http://localhost:{cfg['local_port']}  (cog API)")
+    print(f"              http://localhost:8188             (ComfyUI UI)")
+    if public.get("5000"):
+        print(f"  public api: {public['5000']}")
+    if public.get("8188"):
+        print(f"  public ui:  {public['8188']}")
+    if not public:
+        print("  public:     (port mapping not yet visible in vast.ai metadata; "
+              "re-check with `deploy.py status` in ~30s)")
     print(f"  destroy:    python deploy/deploy.py destroy {instance_id}")
     print(f"  self-destruct: armed for {cfg['max_session_hours']}h")
     print()
@@ -368,6 +420,10 @@ def cmd_status(args: argparse.Namespace) -> int:
               f"gpu={inst.get('gpu_name')}  "
               f"image={inst.get('image_uuid', inst.get('image'))}  "
               f"dph={inst.get('dph_total')}")
+        public = public_endpoints(int(inst["id"]))
+        for cport, url in public.items():
+            label = "ComfyUI UI" if cport == "8188" else "cog API" if cport == "5000" else cport
+            print(f"    {label}: {url}")
     return 0
 
 
