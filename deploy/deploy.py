@@ -169,10 +169,10 @@ def create_instance(offer_id: int, image: str, disk_gb: int) -> int:
         "--image", image,
         "--disk", str(disk_gb),
         "--ssh",
-        # Expose cog API + ComfyUI UI publicly via vast.ai's port mapping.
-        # Host port = container port (vast.ai may remap; check inst metadata).
-        "-p", "5000:5000",
-        "-p", "8188:8188",
+        # vastai bundles env vars + port mappings into a single --env arg
+        # (docker-style flags inside one quoted string).
+        # cog API on 5000; ComfyUI UI on 8188.
+        "--env", "-p 5000:5000 -p 8188:8188",
         "--onstart-cmd", _onstart_cmd(),
     )
     if not isinstance(out, dict) or "new_contract" not in out:
