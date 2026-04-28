@@ -113,6 +113,10 @@ def build_offer_query(cfg: dict) -> str:
         parts.append(f"geolocation in [{','.join(cfg['geolocation'])}]")
     if "verified" in cfg:
         parts.append(f"verified={'true' if cfg['verified'] else 'false'}")
+    if cfg.get("min_direct_port_count"):
+        # Excludes hosts that report mapped ports in metadata but can't
+        # actually route inbound traffic to them (NAT-restricted home setups).
+        parts.append(f"direct_port_count>={cfg['min_direct_port_count']}")
     # interruptible is enforced at create-time (on-demand = omit --bid-price),
     # not at search-time. Don't add it to the query — there's no equivalent filter.
     return " ".join(parts)
@@ -169,6 +173,13 @@ def create_instance(offer_id: int, image: str, disk_gb: int) -> int:
         "--image", image,
         "--disk", str(disk_gb),
         "--ssh",
+        # --direct bypasses vast.ai's SSH gateway proxy. The host's actual IP
+        # is used for both SSH and mapped ports. Avoids the gateway's per-instance
+        # SSH-key cache lag (which produced "Permission denied (publickey)" on
+        # ssh3 for keys that worked on ssh2 — same key, different cache state).
+        # Requires the offer's direct_port_count >= ports we map; deploy.yaml's
+        # min_direct_port_count filter selects for that.
+        "--direct",
         # vastai bundles env vars + port mappings into a single --env arg
         # (docker-style flags inside one quoted string).
         # cog API on 5000; ComfyUI UI on 8188.
@@ -272,6 +283,44 @@ def open_tunnel(ssh_host: str, ssh_port: int, ssh_key: str, local_port: int) -> 
     return pid
 
 
+def verify_public_reachability(instance_id: int, timeout_s: int = 90) -> None:
+    """Probe ComfyUI's public URL to confirm port mapping actually routes.
+
+    vast.ai populates `ports` in instance metadata as soon as the container
+    starts, but on hosts behind restrictive NAT the mapped port isn't actually
+    routable from the open internet. Catches that here rather than at first
+    use. Warns + continues rather than fails — local SSH tunnel still works.
+    """
+    public = public_endpoints(instance_id)
+    url = public.get("8188")
+    if not url:
+        print(
+            "!!! no public 8188 mapping in vast.ai metadata. The host may not "
+            "support port mapping; SSH tunnel still works. Consider destroying "
+            "and picking a different offer-id.",
+            file=sys.stderr,
+        )
+        return
+    probe = f"{url}/system_stats"
+    deadline = time.time() + timeout_s
+    last_err = ""
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(probe, timeout=5) as r:
+                if r.status == 200:
+                    print(f">>> public ComfyUI reachable: {url}")
+                    return
+        except Exception as e:
+            last_err = type(e).__name__
+        time.sleep(5)
+    print(
+        f"!!! public URL {url} not reachable in {timeout_s}s (last: {last_err}). "
+        f"Host's NAT/firewall is blocking the mapped port. SSH tunnel still works "
+        f"(localhost:8188). Destroy + pick a different offer if you need public access.",
+        file=sys.stderr,
+    )
+
+
 def health_check(local_port: int, timeout_min: int) -> None:
     url = f"http://localhost:{local_port}/health-check"
     deadline = time.time() + timeout_min * 60
@@ -337,7 +386,7 @@ def register_atexit_cleanup(instance_id: int) -> None:
     def _cleanup():
         try:
             print(f"\n>>> atexit: destroying instance {instance_id}")
-            vastai("destroy", "instance", str(instance_id), json_output=False, check=False)
+            vastai("destroy", "instance", "-y", str(instance_id), json_output=False, check=False)
         except Exception as e:
             print(f"!!! atexit cleanup failed: {e}", file=sys.stderr)
     atexit.register(_cleanup)
@@ -409,6 +458,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     open_tunnel(ssh_host, ssh_port, cfg["ssh_key"], cfg["local_port"])
     health_check(cfg["local_port"], cfg["health_check_timeout_min"])
+    verify_public_reachability(instance_id, timeout_s=90)
 
     public = public_endpoints(instance_id)
 
@@ -445,7 +495,7 @@ def _atexit_cleanup_for(instance_id: int):
 
 def cmd_destroy(args: argparse.Namespace) -> int:
     print(f">>> destroying instance {args.instance_id}")
-    vastai("destroy", "instance", str(args.instance_id), json_output=False)
+    vastai("destroy", "instance", "-y", str(args.instance_id), json_output=False)
     if TUNNEL_PID_FILE.exists():
         try:
             pid = int(TUNNEL_PID_FILE.read_text().strip())

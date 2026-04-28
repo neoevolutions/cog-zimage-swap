@@ -13,11 +13,16 @@ disk_gb: 100
 min_inet_down_mbps: 500
 min_reliability: 0.98
 geolocation:
-  - US
+  # - US
   - CA
   - EU
 verified: true
 interruptible: false
+
+# Excludes hosts behind restrictive NAT — they show port mappings in
+# metadata but those mappings aren't actually routable from the public
+# internet. We map 5000 + 8188 so we need at least 2 direct ports.
+min_direct_port_count: 2
 
 # Cost cap (USD per hour, total including bandwidth)
 max_dph: 0.50
