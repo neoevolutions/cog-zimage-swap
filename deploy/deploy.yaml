@@ -19,10 +19,12 @@ geolocation:
 verified: true
 interruptible: false
 
-# Excludes hosts behind restrictive NAT — they show port mappings in
-# metadata but those mappings aren't actually routable from the public
-# internet. We map 5000 + 8188 so we need at least 2 direct ports.
-min_direct_port_count: 2
+# Require datacenter-grade hosts with a dedicated public IP. This is what
+# `--direct` actually needs to work — without static_ip, vastai falls back
+# to ssh_proxy mode (gateway with key-cache lag). Note: `ssh_direct=true`
+# is documented in vastai but the API rejects it; static_ip=true is the
+# working filter.
+require_static_ip: true
 
 # Cost cap (USD per hour, total including bandwidth)
 max_dph: 0.50

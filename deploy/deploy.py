@@ -113,10 +113,13 @@ def build_offer_query(cfg: dict) -> str:
         parts.append(f"geolocation in [{','.join(cfg['geolocation'])}]")
     if "verified" in cfg:
         parts.append(f"verified={'true' if cfg['verified'] else 'false'}")
-    if cfg.get("min_direct_port_count"):
-        # Excludes hosts that report mapped ports in metadata but can't
-        # actually route inbound traffic to them (NAT-restricted home setups).
-        parts.append(f"direct_port_count>={cfg['min_direct_port_count']}")
+    if cfg.get("require_static_ip"):
+        # `ssh_direct` is documented but the API rejects it as "not a valid
+        # search key" — vastai docs lie. The real filter is `static_ip=true`,
+        # which selects datacenter hosts with dedicated IPs. Those are the
+        # ones that actually honor --direct (host IP routing instead of
+        # vast.ai's proxy gateway, which has the SSH-key-cache lag bug).
+        parts.append("static_ip=true")
     # interruptible is enforced at create-time (on-demand = omit --bid-price),
     # not at search-time. Don't add it to the query — there's no equivalent filter.
     return " ".join(parts)
