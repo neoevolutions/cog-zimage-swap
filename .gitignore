@@ -1,0 +1,31 @@
+__pycache__/
+*.pyc
+.cog/
+.DS_Store
+.venv/
+*.egg-info/
+.claude/
+
+# local-only build artifacts
+*.tar
+*.zip
+
+# Civitai source workflow — author asked for no redistribution; download from
+# https://civitai.com/models/2478306 and save locally as needed.
+Character-Head-Swap*.json
+characterHeadSwap*
+
+# weights cache (never commit; resolved at runtime)
+models/
+weights_cache/
+loras/
+
+# dry-run artifacts
+/tmp/dry_run_*.json
+
+# secrets
+.env
+*.tunnel.pid
+
+# downloaded outputs
+predictions/

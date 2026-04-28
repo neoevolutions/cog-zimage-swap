@@ -1,0 +1,43 @@
+{
+  "_comment": "Replace every /resolve/main/ with /resolve/<commit_sha>/ before Phase 1 — see scripts/resolve_pins.py. Filenames in 'dest' MUST match what the workflow references (e.g. CLIPLoaderGGUF widget value, VAELoader widget value).",
+  "weights": [
+    {
+      "name": "Z-Image Turbo (GGUF Q5_K_M)",
+      "url": "https://huggingface.co/jayn7/Z-Image-Turbo-GGUF/resolve/main/z_image_turbo-Q5_K_M.gguf",
+      "dest": "/opt/comfyui/models/diffusion_models/z_image_turbo-Q5_K_M.gguf",
+      "approx_size_gb": 4.5,
+      "commit_sha": "TODO_PIN_SHA"
+    },
+    {
+      "name": "Qwen3-4B text encoder (GGUF UD-Q5_K_XL)",
+      "url": "https://huggingface.co/unsloth/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-UD-Q5_K_XL.gguf",
+      "dest": "/opt/comfyui/models/text_encoders/Qwen3-4B-UD-Q5_K_XL.gguf",
+      "approx_size_gb": 3.0,
+      "commit_sha": "TODO_PIN_SHA"
+    },
+    {
+      "_comment": "Workflow references 'z_image_turbo_vae.safetensors' as filename. PLAN.md cites Tongyi-MAI/Z-Image-Turbo/ae.safetensors; verify the filename match before Phase 1 — may need to rename on download or change workflow.",
+      "name": "Z-Image VAE",
+      "url": "https://huggingface.co/Tongyi-MAI/Z-Image-Turbo/resolve/main/ae.safetensors",
+      "dest": "/opt/comfyui/models/vae/z_image_turbo_vae.safetensors",
+      "approx_size_gb": 0.3,
+      "commit_sha": "TODO_PIN_SHA"
+    },
+    {
+      "_comment": "SAM3 source not specified in PLAN.md — discover correct repo before Phase 1. Civitai workflow author used a fp16 quant.",
+      "name": "SAM3 fp16",
+      "url": "TODO_FIND_HF_URL/sam3-fp16.safetensors",
+      "dest": "/opt/comfyui/models/sam/sam3-fp16.safetensors",
+      "approx_size_gb": 1.5,
+      "commit_sha": "TODO_PIN_SHA"
+    },
+    {
+      "_comment": "JoyCaption is a multi-file model bundle. The custom node will fetch its own deps on first run if not cached; revisit caching strategy before Phase 1.",
+      "name": "JoyCaption (joycaption-beta-one)",
+      "url": "MULTI_FILE_BUNDLE",
+      "dest": "/opt/comfyui/models/joycaption/",
+      "approx_size_gb": 8.0,
+      "commit_sha": "TODO_PIN_SHA"
+    }
+  ]
+}

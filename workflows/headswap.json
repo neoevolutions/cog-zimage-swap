@@ -1,0 +1,56 @@
+{
+  "_comment": "PLACEHOLDER API-format workflow for Phase 0 dry-run validation only. The real workflow must be re-exported from ComfyUI via Save (API Format) on the source UI workflow at ../Character-Head-SwapV1_LowVRAM-3-19-26.json after retitling parameter-bearing nodes per the named-handle contract in README.md. This stub contains only the named handles required by predict.patch_workflow; submitting it to a real ComfyUI server will fail validation.",
+  "1": {
+    "class_type": "LoadImage",
+    "_meta": {"title": "INPUT_TARGET_IMAGE"},
+    "inputs": {
+      "image": "placeholder.png",
+      "upload": "image"
+    }
+  },
+  "2": {
+    "class_type": "Text Multiline",
+    "_meta": {"title": "INPUT_PROMPT"},
+    "inputs": {
+      "text": ""
+    }
+  },
+  "3": {
+    "class_type": "KSampler",
+    "_meta": {"title": "SEED_INPUT"},
+    "inputs": {
+      "seed": 0,
+      "control_after_generate": "fixed",
+      "steps": 8,
+      "cfg": 1.7,
+      "sampler_name": "ddim",
+      "scheduler": "linear_quadratic",
+      "denoise": 0.35,
+      "model": ["4", 0],
+      "positive": ["_PLACEHOLDER", 0],
+      "negative": ["_PLACEHOLDER", 0],
+      "latent_image": ["_PLACEHOLDER", 0]
+    }
+  },
+  "4": {
+    "class_type": "Power Lora Loader (rgthree)",
+    "_meta": {"title": "LORA_LOADER"},
+    "inputs": {
+      "lora_1": {
+        "on": false,
+        "lora": "None",
+        "strength": 0.0
+      },
+      "model": ["_PLACEHOLDER", 0],
+      "clip": ["_PLACEHOLDER", 0]
+    }
+  },
+  "5": {
+    "class_type": "SaveImage",
+    "_meta": {"title": "OUTPUT_IMAGE"},
+    "inputs": {
+      "filename_prefix": "headswap",
+      "images": ["3", 0]
+    }
+  }
+}

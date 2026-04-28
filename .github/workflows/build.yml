@@ -1,0 +1,76 @@
+name: build-and-push
+
+# Triggers:
+#   - workflow_dispatch: manual run from the Actions tab
+#   - push of a v* tag: e.g. `git tag v0.1.0 && git push --tags`
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag to push (e.g. phase0, latest)"
+        default: "phase0"
+        required: true
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Free disk space
+        # The cog image with torch+CUDA is ~10GB; default runner has tight headroom.
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune -af
+          df -h /
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install cog
+        run: |
+          sudo curl -fsSL "https://github.com/replicate/cog/releases/download/v0.10.2/cog_$(uname -s)_$(uname -m)" \
+            -o /usr/local/bin/cog
+          sudo chmod +x /usr/local/bin/cog
+          cog --version || true
+
+      - name: Resolve image tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Validate workflow JSON + dry-run patcher tests
+        run: |
+          python3 -m json.tool workflows/headswap.json > /dev/null
+          python3 -m json.tool custom_nodes.json > /dev/null
+          python3 -m json.tool weights.json > /dev/null
+          python3 tests/test_dry_run.py
+
+      - name: Build cog image
+        env:
+          IMAGE: ghcr.io/${{ github.repository_owner }}/cog-zimage:${{ steps.tag.outputs.value }}
+        run: |
+          cog build -t "$IMAGE"
+          docker images "$IMAGE"
+
+      - name: Push to GHCR
+        env:
+          IMAGE: ghcr.io/${{ github.repository_owner }}/cog-zimage:${{ steps.tag.outputs.value }}
+        run: |
+          docker push "$IMAGE"
+          echo "::notice title=Pushed::$IMAGE"

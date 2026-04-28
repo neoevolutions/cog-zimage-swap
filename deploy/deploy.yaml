@@ -1,0 +1,39 @@
+# vast.ai search filters and run-mode instance config.
+# Read by deploy.py. Tune freely; defaults match PLAN.md Phase 1.
+
+# Hardware filters
+gpu_name:
+  - RTX_3090
+  - RTX_4090
+min_vram_gb: 16
+cuda_min: 12.0
+disk_gb: 100
+
+# Network / reliability filters
+min_inet_down_mbps: 500
+min_reliability: 0.98
+geolocation:
+  - US
+  - CA
+  - EU
+verified: true
+interruptible: false
+
+# Cost cap (USD per hour, total including bandwidth)
+max_dph: 0.50
+
+# Image to boot. Set after the first GHA push lands an image in GHCR.
+# Override at runtime with: deploy.py run --image <ref>
+image: ghcr.io/neoevolutions/cog-zimage:phase0
+
+# Local SSH key registered with vast.ai (private key path).
+# Override with SSH_KEY_PATH env var.
+ssh_key: ~/.ssh/id_rsa_vastai
+
+# Cost guardrails (PLAN.md, all three required)
+max_session_hours: 4              # server-side self-destruct timer
+weight_download_timeout_min: 10   # abort + retry on slow downloads
+health_check_timeout_min: 12      # fail fast if ComfyUI doesn't boot
+
+# Local port for the SSH tunnel
+local_port: 5000
