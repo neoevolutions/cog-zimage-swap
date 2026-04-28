@@ -278,7 +278,17 @@ def cmd_find(args: argparse.Namespace) -> int:
     print(f">>> top {len(offers)} offers (by dph_total ascending):")
     for o in offers:
         print("  " + fmt_offer(o))
+    print()
+    print("To launch a specific one: python3 deploy/deploy.py run --offer-id <id>")
     return 0
+
+
+def fetch_offer(offer_id: int) -> dict:
+    """Look up a specific offer by id, ignoring deploy.yaml filters."""
+    out = vastai("search", "offers", f"id={offer_id} rentable=true")
+    if not isinstance(out, list) or not out:
+        sys.exit(f"offer {offer_id} not found or no longer rentable")
+    return out[0]
 
 
 def cmd_run(args: argparse.Namespace) -> int:
@@ -287,11 +297,15 @@ def cmd_run(args: argparse.Namespace) -> int:
     if not image:
         sys.exit("no image specified (deploy.yaml `image:` or --image or $GHCR_IMAGE)")
 
-    offers = search_offers(cfg, limit=10)
-    if not offers:
-        sys.exit("no offers match filters")
-    offer = offers[0]
-    print(f">>> picked: {fmt_offer(offer)}")
+    if args.offer_id:
+        offer = fetch_offer(args.offer_id)
+        print(f">>> using requested offer: {fmt_offer(offer)}")
+    else:
+        offers = search_offers(cfg, limit=10)
+        if not offers:
+            sys.exit("no offers match filters")
+        offer = offers[0]
+        print(f">>> picked cheapest: {fmt_offer(offer)}")
 
     instance_id = create_instance(int(offer["id"]), image, cfg["disk_gb"])
     register_atexit_cleanup(instance_id)
@@ -372,6 +386,8 @@ def main(argv: list[str] | None = None) -> int:
 
     p_run = sub.add_parser("run", help="Provision instance, tunnel, ready")
     p_run.add_argument("--image", help="Override deploy.yaml image:")
+    p_run.add_argument("--offer-id", type=int, default=None,
+                       help="Use a specific offer id (from `find`) instead of the cheapest match.")
     p_run.add_argument("--detach", action="store_true",
                        help="Exit after ready instead of holding ownership; instance survives.")
     p_run.set_defaults(func=cmd_run)
