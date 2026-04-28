@@ -39,11 +39,15 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install cog
+        # Pin via GitHub releases API → always-valid latest release URL.
+        # Avoids hardcoding a tag that may not exist or may rot.
         run: |
-          sudo curl -fsSL "https://github.com/replicate/cog/releases/download/v0.10.2/cog_$(uname -s)_$(uname -m)" \
+          LATEST=$(curl -fsSL https://api.github.com/repos/replicate/cog/releases/latest | jq -r .tag_name)
+          echo "Installing cog $LATEST"
+          sudo curl -fsSL "https://github.com/replicate/cog/releases/download/${LATEST}/cog_Linux_x86_64" \
             -o /usr/local/bin/cog
           sudo chmod +x /usr/local/bin/cog
-          cog --version || true
+          cog --version
 
       - name: Resolve image tag
         id: tag
