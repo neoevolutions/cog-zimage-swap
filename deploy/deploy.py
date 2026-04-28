@@ -177,6 +177,10 @@ def wait_for_ssh(instance_id: int, timeout_s: int = 600) -> tuple[str, int]:
 
 
 def open_tunnel(ssh_host: str, ssh_port: int, ssh_key: str, local_port: int) -> int:
+    # Forward both cog's HTTP API (5000) and ComfyUI's UI (8188) — the latter
+    # so workflow JSON re-export can be done in a browser without a separate
+    # SSH command. ComfyUI is spawned by cog setup() and binds 0.0.0.0:8188
+    # inside the container; localhost:8188 from inside the SSH session reaches it.
     cmd = [
         "ssh",
         "-i", expand_path(ssh_key),
@@ -185,6 +189,7 @@ def open_tunnel(ssh_host: str, ssh_port: int, ssh_key: str, local_port: int) -> 
         "-o", "StrictHostKeyChecking=accept-new",
         "-o", "ServerAliveInterval=30",
         "-L", f"{local_port}:localhost:5000",
+        "-L", "8188:localhost:8188",
         f"root@{ssh_host}",
     ]
     print(f">>> opening tunnel: {' '.join(shlex.quote(c) for c in cmd)}")
