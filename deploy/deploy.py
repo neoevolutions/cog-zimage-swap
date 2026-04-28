@@ -290,25 +290,47 @@ def health_check(local_port: int, timeout_min: int) -> None:
 
 def schedule_self_destruct(instance_id: int, ssh_host: str, ssh_port: int,
                            ssh_key: str, max_hours: float, api_key: str) -> None:
-    """Run on the remote box: sleep, then DELETE the instance via vast.ai REST."""
+    """Run on the remote box: sleep, then DELETE the instance via vast.ai REST.
+
+    Retries with backoff because sshd often isn't accepting connections in the
+    first few seconds after vast.ai reports actual_status=running. If all retries
+    fail, warn but keep going — the local atexit handler still cleans up on
+    normal exit; only laptop-dies-mid-session leaks money in that case.
+    """
     seconds = int(max_hours * 3600)
+    url = f"https://console.vast.ai/api/v0/instances/{instance_id}/?api_key={api_key}"
+    # Use setsid -f so the inner sleep+curl is detached from the SSH session;
+    # otherwise SSH waits for the descriptor to close.
     remote = (
-        f"nohup sh -c "
-        f"'sleep {seconds} && "
-        f"curl -s -X DELETE "
-        f"\"https://console.vast.ai/api/v0/instances/{instance_id}/?api_key={api_key}\"' "
-        f"> /tmp/self-destruct.log 2>&1 &"
+        f"setsid -f sh -c "
+        f"'sleep {seconds}; curl -s -X DELETE \"{url}\"' "
+        f"</dev/null >/tmp/self-destruct.log 2>&1"
     )
-    cmd = [
+    base_cmd = [
         "ssh",
         "-i", expand_path(ssh_key),
         "-p", str(ssh_port),
         "-o", "StrictHostKeyChecking=accept-new",
+        "-o", "ConnectTimeout=10",
         f"root@{ssh_host}",
         remote,
     ]
-    subprocess.run(cmd, check=True, capture_output=True)
-    print(f">>> server-side self-destruct armed: instance {instance_id} dies in {max_hours}h")
+    last_err = ""
+    for attempt in range(1, 7):  # ~60s total worst case
+        try:
+            subprocess.run(base_cmd, check=True, capture_output=True, text=True, timeout=20)
+            print(f">>> server-side self-destruct armed: instance {instance_id} dies in {max_hours}h")
+            return
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            last_err = (getattr(e, "stderr", "") or "").strip() or str(e)
+            time.sleep(min(2 * attempt, 15))
+    print(
+        f"!!! could not arm server-side self-destruct after 6 attempts "
+        f"(last error: {last_err[:200]}). Local atexit cleanup is still active; "
+        f"if this script exits cleanly the instance will be destroyed. "
+        f"Don't close your laptop without Ctrl-C first.",
+        file=sys.stderr,
+    )
 
 
 def register_atexit_cleanup(instance_id: int) -> None:
