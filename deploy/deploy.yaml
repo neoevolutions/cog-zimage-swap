@@ -35,5 +35,10 @@ max_session_hours: 4              # server-side self-destruct timer
 weight_download_timeout_min: 10   # abort + retry on slow downloads
 health_check_timeout_min: 12      # fail fast if ComfyUI doesn't boot
 
+# How long deploy.py waits for the instance to reach running+ssh after
+# `vastai create instance`. Image pulls of 10+ GB on slow hosts can take
+# 20+ min; bail earlier only on terminal failure states (exited/offline).
+provision_timeout_min: 30
+
 # Local port for the SSH tunnel
 local_port: 5000

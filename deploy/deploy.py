@@ -203,19 +203,45 @@ def get_instance(instance_id: int) -> dict:
     return out or {}
 
 
-def wait_for_ssh(instance_id: int, timeout_s: int = 600) -> tuple[str, int]:
-    deadline = time.time() + timeout_s
-    last_status = None
+TERMINAL_FAILURE_STATUSES = {"exited", "offline", "error"}
+
+
+def wait_for_ssh(instance_id: int, timeout_s: int) -> tuple[str, int]:
+    """Poll vast.ai until the instance is running and SSH is reachable.
+
+    Image pulls on slow hosts (10+ GB cog images) can legitimately take
+    20+ minutes. We tolerate that and bail early only on terminal failures.
+    Reports actual_status and status_msg changes as they happen so the user
+    can see progress (e.g. "Pulling image", "Container started").
+    """
+    started_at = time.time()
+    deadline = started_at + timeout_s
+    last_status: str | None = None
+    last_msg: str | None = None
     while time.time() < deadline:
         inst = get_instance(instance_id)
-        status = inst.get("actual_status")
-        if status != last_status:
-            print(f">>> instance {instance_id} status: {status}")
+        status = inst.get("actual_status") or "?"
+        msg = (inst.get("status_msg") or "").strip()
+        if status != last_status or msg != last_msg:
+            elapsed = int(time.time() - started_at)
+            head = f">>> [{elapsed:>4}s] instance {instance_id}: status={status}"
+            print(f"{head} {msg[:160]}" if msg else head)
             last_status = status
+            last_msg = msg
         if status == "running" and inst.get("ssh_host") and inst.get("ssh_port"):
             return inst["ssh_host"], int(inst["ssh_port"])
-        time.sleep(5)
-    sys.exit(f"instance {instance_id} did not reach running+ssh within {timeout_s}s")
+        if status in TERMINAL_FAILURE_STATUSES:
+            sys.exit(
+                f"instance {instance_id} reached terminal status '{status}' "
+                f"after {int(time.time() - started_at)}s — destroy and retry "
+                f"(probably a different host).\nstatus_msg: {msg}"
+            )
+        time.sleep(10)
+    sys.exit(
+        f"instance {instance_id} did not reach running+ssh within {timeout_s}s "
+        f"(last status: {last_status}). Use `deploy.py status` to check; "
+        f"`deploy.py destroy {instance_id}` to clean up."
+    )
 
 
 def open_tunnel(ssh_host: str, ssh_port: int, ssh_key: str, local_port: int) -> int:
@@ -351,7 +377,8 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     instance_id = create_instance(int(offer["id"]), image, cfg["disk_gb"])
     register_atexit_cleanup(instance_id)
-    ssh_host, ssh_port = wait_for_ssh(instance_id, timeout_s=600)
+    provision_timeout_s = int(cfg.get("provision_timeout_min", 30)) * 60
+    ssh_host, ssh_port = wait_for_ssh(instance_id, timeout_s=provision_timeout_s)
 
     schedule_self_destruct(
         instance_id, ssh_host, ssh_port,
