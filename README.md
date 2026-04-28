@@ -1,4 +1,4 @@
-# cog-zimage
+# cog-zimage-swap
 
 Replicate-style API for the Z-Image Turbo + SAM3 character headswap workflow,
 packaged as a Cog container, deployable to vast.ai cloud GPUs.
@@ -86,7 +86,7 @@ Trigger:
 
 - **Manual:** Actions tab → "build-and-push" → Run workflow → tag `phase0`
 - **On tag:** `git tag v0.1.0 && git push --tags` → builds and pushes
-  `ghcr.io/neoevolutions/cog-zimage:0.1.0`
+  `ghcr.io/neoevolutions/cog-zimage-swap:0.1.0`
 
 The workflow runs `cog build` and `docker push`. `GITHUB_TOKEN` already has
 `write:packages` so no PAT setup needed for CI itself. For local pushes,
@@ -130,5 +130,6 @@ are all wired in `deploy.py`.
 - **Locate SAM3 weight source** — PLAN.md does not specify a HF repo for
   `sam3-fp16.safetensors`.
 - **Decide JoyCaption caching strategy.** ~8 GB multi-file bundle.
-- **First GHA run** to land an image at `ghcr.io/neoevolutions/cog-zimage:phase0`
-  before `deploy.py run` will succeed.
+- **First GHA run** to land an image at `ghcr.io/neoevolutions/cog-zimage-swap:phase0`
+  before `deploy.py run` will succeed. After the first push, change the GHCR
+  package visibility to public so vast.ai can pull without auth.

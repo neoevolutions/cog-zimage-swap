@@ -24,7 +24,7 @@ max_dph: 0.50
 
 # Image to boot. Set after the first GHA push lands an image in GHCR.
 # Override at runtime with: deploy.py run --image <ref>
-image: ghcr.io/neoevolutions/cog-zimage:phase0
+image: ghcr.io/neoevolutions/cog-zimage-swap:phase0
 
 # Local SSH key registered with vast.ai (private key path).
 # Override with SSH_KEY_PATH env var.
