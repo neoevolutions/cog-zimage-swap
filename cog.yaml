@@ -27,11 +27,14 @@ build:
     # Custom-node installs — one run: item per node so each is its own cache layer.
     # cog rejects multi-line strings here, hence the &&-chained one-liners.
     # Source of truth for this list is custom_nodes.json — keep in sync.
-    - "bash -c 'D=/opt/comfyui/custom_nodes/ComfyUI-GGUF && git clone https://github.com/city96/ComfyUI-GGUF $D && git -C $D checkout d3e14efda6bb891de0406d2debffcb07e88d4231 && { [ ! -f $D/requirements.txt ] || pip install --no-cache-dir -r $D/requirements.txt; }'"
-    - "bash -c 'D=/opt/comfyui/custom_nodes/was-node-suite-comfyui && git clone https://github.com/WASasquatch/was-node-suite-comfyui $D && git -C $D checkout afeee09ba44e713ec52a413ac6b105fd06b2d356 && { [ ! -f $D/requirements.txt ] || pip install --no-cache-dir -r $D/requirements.txt; }'"
-    - "bash -c 'D=/opt/comfyui/custom_nodes/ComfyUI-Easy-Sam3 && git clone https://github.com/yolain/ComfyUI-Easy-Sam3 $D && git -C $D checkout v1.0.4 && { [ ! -f $D/requirements.txt ] || pip install --no-cache-dir -r $D/requirements.txt; }'"
-    - "bash -c 'D=/opt/comfyui/custom_nodes/ComfyUI-JoyCaption && git clone https://github.com/1038lab/ComfyUI-JoyCaption $D && git -C $D checkout v2.0.2 && { [ ! -f $D/requirements.txt ] || pip install --no-cache-dir -r $D/requirements.txt; }'"
-    - "bash -c 'D=/opt/comfyui/custom_nodes/ComfyUI-Inpaint-CropAndStitch && git clone https://github.com/lquesada/ComfyUI-Inpaint-CropAndStitch $D && git -C $D checkout v3.0.2 && { [ ! -f $D/requirements.txt ] || pip install --no-cache-dir -r $D/requirements.txt; }'"
-    - "bash -c 'D=/opt/comfyui/custom_nodes/rgthree-comfy && git clone https://github.com/rgthree/rgthree-comfy $D && git -C $D checkout 1.0.2512112053 && { [ ! -f $D/requirements.txt ] || pip install --no-cache-dir -r $D/requirements.txt; }'"
+    # SHAs are HEAD of main as of 2026-04-28. The "ver" fields in the
+    # source workflow JSON are ComfyUI Registry versions, not git tags —
+    # they don't exist on GitHub. Repin via `git ls-remote <url> HEAD`.
+    - "bash -c 'D=/opt/comfyui/custom_nodes/ComfyUI-GGUF && git clone https://github.com/city96/ComfyUI-GGUF $D && git -C $D checkout 6ea2651e7df66d7585f6ffee804b20e92fb38b8a && { [ ! -f $D/requirements.txt ] || pip install --no-cache-dir -r $D/requirements.txt; }'"
+    - "bash -c 'D=/opt/comfyui/custom_nodes/was-node-suite-comfyui && git clone https://github.com/ltdrdata/was-node-suite-comfyui $D && git -C $D checkout afeee09ba44e713ec52a413ac6b105fd06b2d356 && { [ ! -f $D/requirements.txt ] || pip install --no-cache-dir -r $D/requirements.txt; }'"
+    - "bash -c 'D=/opt/comfyui/custom_nodes/ComfyUI-Easy-Sam3 && git clone https://github.com/yolain/ComfyUI-Easy-Sam3 $D && git -C $D checkout 88fe578a1a5e03d95281197303d5d3a73fd5a089 && { [ ! -f $D/requirements.txt ] || pip install --no-cache-dir -r $D/requirements.txt; }'"
+    - "bash -c 'D=/opt/comfyui/custom_nodes/ComfyUI-JoyCaption && git clone https://github.com/1038lab/ComfyUI-JoyCaption $D && git -C $D checkout a0e9f0a17a5deb933fef341e2c7b0131e4f83c8a && { [ ! -f $D/requirements.txt ] || pip install --no-cache-dir -r $D/requirements.txt; }'"
+    - "bash -c 'D=/opt/comfyui/custom_nodes/ComfyUI-Inpaint-CropAndStitch && git clone https://github.com/lquesada/ComfyUI-Inpaint-CropAndStitch $D && git -C $D checkout 8e59ab12d6709616528279c85c0648ca8441684d && { [ ! -f $D/requirements.txt ] || pip install --no-cache-dir -r $D/requirements.txt; }'"
+    - "bash -c 'D=/opt/comfyui/custom_nodes/rgthree-comfy && git clone https://github.com/rgthree/rgthree-comfy $D && git -C $D checkout 683836c46e898668936c433502504cc0627482c5 && { [ ! -f $D/requirements.txt ] || pip install --no-cache-dir -r $D/requirements.txt; }'"
 
 predict: "predict.py:Predictor"

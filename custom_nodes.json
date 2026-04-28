@@ -1,44 +1,40 @@
 {
-  "_comment": "Pin every entry to a commit SHA. Where a SHA was extracted from the source workflow .ver field it is used directly; remaining entries carry a version_hint and TODO_PIN_SHA — resolve via scripts/resolve_pins.py before Phase 1.",
+  "_comment": "Pinned to HEAD of main as of 2026-04-28. The `ver` fields in the source Civitai workflow JSON are ComfyUI Registry internal versions, NOT GitHub tags — every `v1.0.4`-style ref I tried to pin to was missing on GitHub. Functional source of truth for the build is cog.yaml; keep these two in sync. Refresh via `git ls-remote <url> HEAD`.",
   "nodes": [
     {
       "name": "ComfyUI-GGUF",
       "repo": "https://github.com/city96/ComfyUI-GGUF",
-      "commit": "d3e14efda6bb891de0406d2debffcb07e88d4231",
+      "commit": "6ea2651e7df66d7585f6ffee804b20e92fb38b8a",
       "purpose": "Loading Z-Image and Qwen3 in GGUF format"
     },
     {
       "name": "was-node-suite-comfyui",
-      "repo": "https://github.com/WASasquatch/was-node-suite-comfyui",
+      "repo": "https://github.com/ltdrdata/was-node-suite-comfyui",
       "commit": "afeee09ba44e713ec52a413ac6b105fd06b2d356",
-      "purpose": "Text Multiline, Text Concatenate, Masks Combine Regions"
+      "purpose": "Text Multiline, Text Concatenate, Masks Combine Regions. ltdrdata fork (per workflow aux_id), not WASasquatch."
     },
     {
       "name": "ComfyUI-Easy-Sam3",
       "repo": "https://github.com/yolain/ComfyUI-Easy-Sam3",
-      "commit": "TODO_PIN_SHA",
-      "version_hint": "v1.0.4",
+      "commit": "88fe578a1a5e03d95281197303d5d3a73fd5a089",
       "purpose": "Head/face/hair segmentation (easy sam3ImageSegmentation, easy sam3ModelLoader)"
     },
     {
       "name": "ComfyUI-JoyCaption",
       "repo": "https://github.com/1038lab/ComfyUI-JoyCaption",
-      "commit": "TODO_PIN_SHA",
-      "version_hint": "v2.0.2",
+      "commit": "a0e9f0a17a5deb933fef341e2c7b0131e4f83c8a",
       "purpose": "Auto-caption of input image (JC_adv, JC_ExtraOptions)"
     },
     {
       "name": "ComfyUI-Inpaint-CropAndStitch",
       "repo": "https://github.com/lquesada/ComfyUI-Inpaint-CropAndStitch",
-      "commit": "TODO_PIN_SHA",
-      "version_hint": "v3.0.2",
-      "purpose": "InpaintCropImproved + InpaintStitchImproved (workflow originally referenced 2.1.8 and 3.0.2 — pinning to newer)"
+      "commit": "8e59ab12d6709616528279c85c0648ca8441684d",
+      "purpose": "InpaintCropImproved + InpaintStitchImproved"
     },
     {
       "name": "rgthree-comfy",
       "repo": "https://github.com/rgthree/rgthree-comfy",
-      "commit": "TODO_PIN_SHA",
-      "version_hint": "1.0.2512112053",
+      "commit": "683836c46e898668936c433502504cc0627482c5",
       "purpose": "Power Lora Loader, Any Switch, Fast Groups Bypasser"
     }
   ]
