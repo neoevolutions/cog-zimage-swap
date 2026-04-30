@@ -37,6 +37,9 @@ COMFYUI_BOOT_TIMEOUT = int(os.environ.get("COMFYUI_BOOT_TIMEOUT", "120"))
 COMFYUI_PREDICT_TIMEOUT = int(os.environ.get("COMFYUI_PREDICT_TIMEOUT", "300"))
 
 
+SENTINEL_URLS = ("TODO_FIND_HF_URL", "MULTI_FILE_BUNDLE", "TODO_")
+
+
 class Predictor(BasePredictor):
     def setup(self) -> None:
         self.comfyui_proc: subprocess.Popen | None = None
@@ -46,25 +49,64 @@ class Predictor(BasePredictor):
             return
         # Weights aren't baked into the image (see cog.yaml comment) — fetch them
         # from weights.json before ComfyUI starts. Idempotent: skips files
-        # already on disk.
+        # already on disk. Raises on missing/truncated files so cog never
+        # reports ready with broken state.
+        print("[setup] starting weight download", flush=True)
         self._download_weights()
+        self._verify_weights()
+        print("[setup] starting ComfyUI", flush=True)
         self.comfyui_proc = self._start_comfyui()
         self._wait_for_comfyui(timeout=COMFYUI_BOOT_TIMEOUT)
+        print("[setup] ComfyUI ready", flush=True)
 
     def _download_weights(self) -> None:
         script = P(__file__).parent / "scripts" / "download_weights.py"
         if not script.exists():
-            return
+            # Image-build bug, not transient — fail loudly so the cog server
+            # never reaches ready and deploy.py's health check catches it.
+            raise RuntimeError(f"download_weights.py missing at {script}")
         # Run with the project root as cwd so weights.json resolves correctly.
         result = subprocess.run(
             ["python", str(script)], cwd=str(P(__file__).parent),
             capture_output=False,
         )
         if result.returncode != 0:
-            # download_weights logs its own failures and is best-effort. We let
-            # ComfyUI start anyway — the workflow will surface the missing-file
-            # error as a clear validation message rather than a silent hang.
-            print(f"[predict] download_weights.py exited {result.returncode}; continuing", flush=True)
+            raise RuntimeError(
+                f"download_weights.py exited {result.returncode}; "
+                f"see [download_weights] lines in /var/log/cog.log"
+            )
+
+    def _verify_weights(self) -> None:
+        """Verify every non-sentinel, expected weights.json entry has its dest
+        file with plausible size. Civitai-gated entries are skipped if
+        CIVITAI_TOKEN is missing (matches download_weights.py behavior)."""
+        weights_json = P(__file__).parent / "weights.json"
+        if not weights_json.exists():
+            raise RuntimeError(f"weights.json missing at {weights_json}")
+        cfg = json.loads(weights_json.read_text())
+        missing: list[str] = []
+        total_gb = 0.0
+        n_files = 0
+        for entry in cfg.get("weights") or []:
+            url = (entry.get("url") or "").strip()
+            if any(s in url for s in SENTINEL_URLS):
+                continue
+            if entry.get("auth") == "civitai" and not os.environ.get("CIVITAI_TOKEN", "").strip():
+                continue
+            dest = P(entry.get("dest") or "")
+            expected_gb = entry.get("approx_size_gb") or 0
+            min_bytes = int(expected_gb * 0.5 * (1024 ** 3))
+            if not dest.exists() or dest.stat().st_size < min_bytes:
+                missing.append(f"{entry.get('name')!r} ({dest})")
+                continue
+            total_gb += dest.stat().st_size / (1024 ** 3)
+            n_files += 1
+        if missing:
+            raise RuntimeError(
+                f"weights verification FAILED: {len(missing)} missing or "
+                f"truncated file(s): {missing}"
+            )
+        print(f"[setup] downloads complete: {n_files} files, {total_gb:.1f} GB", flush=True)
 
     def predict(
         self,
