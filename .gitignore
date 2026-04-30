@@ -29,3 +29,6 @@ loras/
 
 # downloaded outputs
 predictions/
+
+# dora code context index
+.dora/

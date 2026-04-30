@@ -1,0 +1,34 @@
+# Custom rules layered on top of gitleaks' built-in defaults. The base
+# ruleset already catches AWS keys, GitHub PATs, HF tokens, Slack/Stripe/
+# generic API keys, and high-entropy strings. These two rules add patterns
+# specifically observed leaking into terminal output during real debugging
+# sessions on this repo (pget URL echoing, vastai stack traces with API
+# keys in URLs). Keeping them tight to avoid false positives — broaden if
+# we see real leaks slip through.
+
+title = "cog-zimage-swap gitleaks rules"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "civitai-query-string-token"
+description = "Civitai download URL with ?token=<hex> in query string. Use Authorization: Bearer header instead so the token doesn't leak into pget output, redirect chains, or server logs."
+regex = '''(?i)civitai\.com/[^"'\s]*[?&]token=[a-fA-F0-9]{16,}'''
+tags = ["civitai", "token", "url-leak"]
+
+[[rules]]
+id = "url-query-api-key"
+description = "API key pasted into a URL query string. Move it to a header or environment variable — query strings leak via redirect chains, server access logs, and pget/curl progress output."
+regex = '''[?&]api[_-]?key=[a-zA-Z0-9_-]{32,}'''
+tags = ["api-key", "url-leak"]
+
+# Ignore matches inside a few paths where these patterns appear as
+# documentation/anti-pattern examples rather than real credentials.
+[allowlist]
+description = "Allow documentation that explains these anti-patterns"
+paths = [
+    '''docs/architecture-replication\.md''',
+    '''docs/session-state-.*\.md''',
+    '''\.gitleaks\.toml''',
+]

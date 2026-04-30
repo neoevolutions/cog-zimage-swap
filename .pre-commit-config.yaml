@@ -1,0 +1,18 @@
+# Pre-commit hooks. Run on every git commit (regardless of how it's
+# triggered: terminal, IDE, Claude Code, CI). One-time setup per clone:
+#
+#   brew install pre-commit gitleaks
+#   pre-commit install
+#
+# Skip in an emergency (use very sparingly):
+#
+#   git commit --no-verify -m "..."
+#
+# Update hook versions periodically:
+#
+#   pre-commit autoupdate
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks

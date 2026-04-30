@@ -1,56 +1,586 @@
 {
-  "_comment": "PLACEHOLDER API-format workflow for Phase 0 dry-run validation only. The real workflow must be re-exported from ComfyUI via Save (API Format) on the source UI workflow at ../Character-Head-SwapV1_LowVRAM-3-19-26.json after retitling parameter-bearing nodes per the named-handle contract in README.md. This stub contains only the named handles required by predict.patch_workflow; submitting it to a real ComfyUI server will fail validation.",
-  "1": {
+  "164": {
+    "inputs": {
+      "clip_name": "Qwen3-4B-UD-Q5_K_XL.gguf",
+      "type": "lumina2"
+    },
+    "class_type": "CLIPLoaderGGUF",
+    "_meta": {
+      "title": "CLIPLoader (GGUF)"
+    }
+  },
+  "176": {
+    "inputs": {
+      "vae_name": "z_image_turbo_vae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load UltraFlux VAE"
+    }
+  },
+  "860": {
+    "inputs": {
+      "samples": [
+        "960",
+        0
+      ],
+      "vae": [
+        "176",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "943": {
+    "inputs": {
+      "noise_mask": true,
+      "positive": [
+        "944",
+        0
+      ],
+      "negative": [
+        "1082",
+        0
+      ],
+      "vae": [
+        "957",
+        0
+      ],
+      "pixels": [
+        "1024",
+        1
+      ],
+      "mask": [
+        "1024",
+        2
+      ]
+    },
+    "class_type": "InpaintModelConditioning",
+    "_meta": {
+      "title": "InpaintModelConditioning"
+    }
+  },
+  "944": {
+    "inputs": {
+      "text": [
+        "1071",
+        0
+      ],
+      "clip": [
+        "164",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Prompt)"
+    }
+  },
+  "946": {
+    "inputs": {
+      "mask": [
+        "1024",
+        2
+      ]
+    },
+    "class_type": "MaskToImage",
+    "_meta": {
+      "title": "Convert Mask to Image"
+    }
+  },
+  "947": {
+    "inputs": {
+      "samples": [
+        "1022",
+        0
+      ],
+      "vae": [
+        "957",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "949": {
+    "inputs": {
+      "strength": 1,
+      "model": [
+        "1086",
+        0
+      ]
+    },
+    "class_type": "DifferentialDiffusion",
+    "_meta": {
+      "title": "Differential Diffusion"
+    }
+  },
+  "950": {
+    "inputs": {
+      "stitcher": [
+        "1024",
+        0
+      ],
+      "inpainted_image": [
+        "947",
+        0
+      ]
+    },
+    "class_type": "InpaintStitchImproved",
+    "_meta": {
+      "title": "\u2702\ufe0f Inpaint Stitch"
+    }
+  },
+  "954": {
+    "inputs": {
+      "images": [
+        "1089",
+        1
+      ]
+    },
+    "class_type": "PreviewImage",
+    "_meta": {
+      "title": "Preview Mask for Face"
+    }
+  },
+  "955": {
+    "inputs": {
+      "images": [
+        "946",
+        0
+      ]
+    },
+    "class_type": "PreviewImage",
+    "_meta": {
+      "title": "Preview Image"
+    }
+  },
+  "957": {
+    "inputs": {
+      "vae_name": "z_image_turbo_vae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "958": {
+    "inputs": {
+      "image": "Z-Image_00029_.png"
+    },
     "class_type": "LoadImage",
-    "_meta": {"title": "INPUT_TARGET_IMAGE"},
-    "inputs": {
-      "image": "placeholder.png",
-      "upload": "image"
+    "_meta": {
+      "title": "INPUT_TARGET_IMAGE"
     }
   },
-  "2": {
-    "class_type": "Text Multiline",
-    "_meta": {"title": "INPUT_PROMPT"},
+  "959": {
     "inputs": {
-      "text": ""
+      "vae_name": "z_image_turbo_vae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
     }
   },
-  "3": {
-    "class_type": "KSampler",
-    "_meta": {"title": "SEED_INPUT"},
+  "960": {
     "inputs": {
-      "seed": 0,
-      "control_after_generate": "fixed",
+      "pixels": [
+        "998",
+        0
+      ],
+      "vae": [
+        "959",
+        0
+      ]
+    },
+    "class_type": "VAEEncode",
+    "_meta": {
+      "title": "VAE Encode"
+    }
+  },
+  "961": {
+    "inputs": {
+      "preview": "",
+      "source": [
+        "1071",
+        0
+      ]
+    },
+    "class_type": "PreviewAny",
+    "_meta": {
+      "title": "Prompt Preview"
+    }
+  },
+  "984": {
+    "inputs": {
+      "filename_prefix": "headswap",
+      "images": [
+        "950",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "OUTPUT_IMAGE"
+    }
+  },
+  "998": {
+    "inputs": {
+      "longer_edge": 1280,
+      "images": [
+        "1073",
+        0
+      ]
+    },
+    "class_type": "ResizeImagesByLongerEdge",
+    "_meta": {
+      "title": "Resize Second Pass"
+    }
+  },
+  "1017": {
+    "inputs": {
+      "exclude_people_info": true,
+      "include_lighting": true,
+      "include_camera_angle": true,
+      "include_watermark": false,
+      "include_JPEG_artifacts": false,
+      "include_exif": false,
+      "exclude_sexual": false,
+      "exclude_image_resolution": false,
+      "include_aesthetic_quality": true,
+      "include_composition_style": true,
+      "exclude_text": true,
+      "specify_depth_field": false,
+      "specify_lighting_sources": true,
+      "do_not_use_ambiguous_language": true,
+      "include_nsfw": true,
+      "only_describe_most_important_elements": false,
+      "do_not_include_artist_name_or_title": true,
+      "identify_image_orientation": false,
+      "use_vulgar_slang_and_profanity": false,
+      "do_not_use_polite_euphemisms": true,
+      "include_character_age": false,
+      "include_camera_shot_type": false,
+      "exclude_mood_feeling": false,
+      "include_camera_vantage_height": true,
+      "mention_watermark": false,
+      "avoid_meta_descriptive_phrases": false,
+      "refer_character_name": true,
+      "character_name": "Rachel Grey"
+    },
+    "class_type": "JC_ExtraOptions",
+    "_meta": {
+      "title": "JoyCaption Extra Options"
+    }
+  },
+  "1018": {
+    "inputs": {
+      "model": "joycaption-beta-one",
+      "quantization": "Full Precision (bf16)",
+      "prompt_style": "Art Critic",
+      "caption_length": "very short",
+      "max_new_tokens": 200,
+      "temperature": 0.9,
+      "top_p": 0.9,
+      "top_k": 0,
+      "custom_prompt": "",
+      "memory_management": "Keep in Memory",
+      "image": [
+        "958",
+        0
+      ],
+      "extra_options": [
+        "1017",
+        0
+      ]
+    },
+    "class_type": "JC_adv",
+    "_meta": {
+      "title": "Auto Prompt"
+    }
+  },
+  "1022": {
+    "inputs": {
+      "seed": 245308283414982,
       "steps": 8,
       "cfg": 1.7,
       "sampler_name": "ddim",
       "scheduler": "linear_quadratic",
       "denoise": 0.35,
-      "model": ["4", 0],
-      "positive": ["_PLACEHOLDER", 0],
-      "negative": ["_PLACEHOLDER", 0],
-      "latent_image": ["_PLACEHOLDER", 0]
+      "model": [
+        "949",
+        0
+      ],
+      "positive": [
+        "943",
+        0
+      ],
+      "negative": [
+        "943",
+        1
+      ],
+      "latent_image": [
+        "943",
+        2
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "SEED_INPUT"
     }
   },
-  "4": {
-    "class_type": "Power Lora Loader (rgthree)",
-    "_meta": {"title": "LORA_LOADER"},
+  "1024": {
     "inputs": {
-      "lora_1": {
-        "on": false,
-        "lora": "None",
-        "strength": 0.0
+      "downscale_algorithm": "bilinear",
+      "upscale_algorithm": "bicubic",
+      "preresize": false,
+      "preresize_mode": "ensure minimum resolution",
+      "preresize_min_width": 1024,
+      "preresize_min_height": 1024,
+      "preresize_max_width": 16384,
+      "preresize_max_height": 16384,
+      "mask_fill_holes": true,
+      "mask_expand_pixels": 0,
+      "mask_invert": false,
+      "mask_blend_pixels": 64,
+      "mask_hipass_filter": 0.1,
+      "extend_for_outpainting": false,
+      "extend_up_factor": 1,
+      "extend_down_factor": 1,
+      "extend_left_factor": 1,
+      "extend_right_factor": 1,
+      "context_from_mask_extend_factor": 1.2,
+      "output_resize_to_target_size": true,
+      "output_target_width": 1024,
+      "output_target_height": 1024,
+      "output_padding": "32",
+      "device_mode": "gpu (much faster)",
+      "image": [
+        "860",
+        0
+      ],
+      "mask": [
+        "1079",
+        0
+      ]
+    },
+    "class_type": "InpaintCropImproved",
+    "_meta": {
+      "title": "\u2702\ufe0f Inpaint Crop"
+    }
+  },
+  "1052": {
+    "inputs": {
+      "samples": [
+        "960",
+        0
+      ],
+      "vae": [
+        "176",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "1059": {
+    "inputs": {
+      "images": [
+        "998",
+        0
+      ]
+    },
+    "class_type": "PreviewImage",
+    "_meta": {
+      "title": "resized preview"
+    }
+  },
+  "1070": {
+    "inputs": {
+      "delimiter": ", ",
+      "clean_whitespace": "true",
+      "text_a": [
+        "1071",
+        0
+      ],
+      "text_b": [
+        "1018",
+        1
+      ]
+    },
+    "class_type": "Text Concatenate",
+    "_meta": {
+      "title": "Text Concatenate"
+    }
+  },
+  "1071": {
+    "inputs": {
+      "text": "'she has dark hair' 'she is looking at the viewer and smiling showing her teeth'"
+    },
+    "class_type": "Text Multiline",
+    "_meta": {
+      "title": "INPUT_PROMPT"
+    }
+  },
+  "1073": {
+    "inputs": {
+      "longer_edge": 8000,
+      "images": [
+        "958",
+        0
+      ]
+    },
+    "class_type": "ResizeImagesByLongerEdge",
+    "_meta": {
+      "title": "Resize First Pass"
+    }
+  },
+  "1079": {
+    "inputs": {
+      "mask_a": [
+        "1090",
+        0
+      ],
+      "mask_b": [
+        "1089",
+        0
+      ]
+    },
+    "class_type": "Masks Combine Regions",
+    "_meta": {
+      "title": "Masks Combine Regions"
+    }
+  },
+  "1080": {
+    "inputs": {
+      "images": [
+        "1090",
+        1
+      ]
+    },
+    "class_type": "PreviewImage",
+    "_meta": {
+      "title": "Preview Mask for Hair"
+    }
+  },
+  "1082": {
+    "inputs": {
+      "text": "ugly, deformed, disfigured, poor anatomy\npoorly drawn hands, feet, face, extra limbs\nblurry, low quality, jpeg artifacts, low contrast\nwatermark, signature, out of frame, cut off\npainting, cartoon, anime, 3d render, illustration",
+      "clip": [
+        "164",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Negative Prompt)"
+    }
+  },
+  "1083": {
+    "inputs": {
+      "unet_name": "z_image_turbo-Q5_K_M.gguf"
+    },
+    "class_type": "UnetLoaderGGUF",
+    "_meta": {
+      "title": "Unet Loader (GGUF)"
+    }
+  },
+  "1085": {
+    "inputs": {
+      "any_02": [
+        "1083",
+        0
+      ]
+    },
+    "class_type": "Any Switch (rgthree)",
+    "_meta": {
+      "title": "Any Switch (rgthree)"
+    }
+  },
+  "1086": {
+    "inputs": {
+      "PowerLoraLoaderHeaderWidget": {
+        "type": "PowerLoraLoaderHeaderWidget"
       },
-      "model": ["_PLACEHOLDER", 0],
-      "clip": ["_PLACEHOLDER", 0]
+      "lora_1": {
+        "on": true,
+        "lora": "d4ra.safetensors",
+        "strength": 0.93
+      },
+      "\u2795 Add Lora": "",
+      "model": [
+        "1085",
+        0
+      ],
+      "clip": [
+        "164",
+        0
+      ]
+    },
+    "class_type": "Power Lora Loader (rgthree)",
+    "_meta": {
+      "title": "LORA_LOADER"
     }
   },
-  "5": {
-    "class_type": "SaveImage",
-    "_meta": {"title": "OUTPUT_IMAGE"},
+  "1088": {
     "inputs": {
-      "filename_prefix": "headswap",
-      "images": ["3", 0]
+      "model": "sam3-fp16.safetensors",
+      "segmentor": "image",
+      "device": "cuda",
+      "precision": "fp16"
+    },
+    "class_type": "easy sam3ModelLoader",
+    "_meta": {
+      "title": "Load SAM3 Model"
+    }
+  },
+  "1089": {
+    "inputs": {
+      "prompt": "face",
+      "threshold": 0.2,
+      "keep_model_loaded": false,
+      "add_background": "none",
+      "detection_limit": -1,
+      "sam3_model": [
+        "1088",
+        0
+      ],
+      "images": [
+        "860",
+        0
+      ]
+    },
+    "class_type": "easy sam3ImageSegmentation",
+    "_meta": {
+      "title": "Face Mask"
+    }
+  },
+  "1090": {
+    "inputs": {
+      "prompt": "Hair",
+      "threshold": 0.2,
+      "keep_model_loaded": false,
+      "add_background": "none",
+      "detection_limit": -1,
+      "sam3_model": [
+        "1088",
+        0
+      ],
+      "images": [
+        "860",
+        0
+      ]
+    },
+    "class_type": "easy sam3ImageSegmentation",
+    "_meta": {
+      "title": "Hair Mask"
     }
   }
 }

@@ -13,6 +13,10 @@ build:
     - "pillow==10.4.0"
     - "tqdm"
     - "pyyaml"
+    # Required by ComfyUI-GGUF for both UnetLoaderGGUF and CLIPLoaderGGUF.
+    # Without it the node logs "WARNING: llama-cpp-python library not found,
+    # GGUF functionality is not available" and the workflow fails validation.
+    - "llama-cpp-python"
   system_packages:
     - "git"
     - "wget"
@@ -36,5 +40,14 @@ build:
     - "bash -c 'D=/opt/comfyui/custom_nodes/ComfyUI-JoyCaption && git clone https://github.com/1038lab/ComfyUI-JoyCaption $D && git -C $D checkout a0e9f0a17a5deb933fef341e2c7b0131e4f83c8a && { [ ! -f $D/requirements.txt ] || pip install --no-cache-dir -r $D/requirements.txt; }'"
     - "bash -c 'D=/opt/comfyui/custom_nodes/ComfyUI-Inpaint-CropAndStitch && git clone https://github.com/lquesada/ComfyUI-Inpaint-CropAndStitch $D && git -C $D checkout 8e59ab12d6709616528279c85c0648ca8441684d && { [ ! -f $D/requirements.txt ] || pip install --no-cache-dir -r $D/requirements.txt; }'"
     - "bash -c 'D=/opt/comfyui/custom_nodes/rgthree-comfy && git clone https://github.com/rgthree/rgthree-comfy $D && git -C $D checkout 683836c46e898668936c433502504cc0627482c5 && { [ ! -f $D/requirements.txt ] || pip install --no-cache-dir -r $D/requirements.txt; }'"
+    # Note: model weights are NOT downloaded at build time. Two reasons:
+    #   1. cog COPYs /src into the container *after* run: completes, so we
+    #      can't reference scripts/download_weights.py or weights.json here.
+    #   2. Civitai-gated entries need CIVITAI_TOKEN, which we pass at runtime
+    #      via env (deploy.py forwards it to vast.ai) rather than bake into
+    #      the image as a build secret.
+    # predict.py setup() invokes scripts/download_weights.py before launching
+    # ComfyUI; first health-check request waits for downloads (~3-5min on a
+    # fast vast.ai host for ~10GB).
 
 predict: "predict.py:Predictor"

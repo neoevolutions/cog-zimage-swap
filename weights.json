@@ -1,42 +1,52 @@
 {
-  "_comment": "Replace every /resolve/main/ with /resolve/<commit_sha>/ before Phase 1 — see scripts/resolve_pins.py. Filenames in 'dest' MUST match what the workflow references (e.g. CLIPLoaderGGUF widget value, VAELoader widget value).",
+  "_comment": "Read by scripts/download_weights.py at runtime (in predict.py setup()), not at image build time. Filenames in 'dest' MUST match what the workflow references — workflow_patch.py only patches inputs, not file paths. Pin commit_sha for reproducibility before production (replace /resolve/main/ with /resolve/<sha>/ in the URL). 'auth' field controls credential handling: omit/null = anonymous HF, 'civitai' = requires CIVITAI_TOKEN env var (sent as Bearer header).",
   "weights": [
     {
       "name": "Z-Image Turbo (GGUF Q5_K_M)",
       "url": "https://huggingface.co/jayn7/Z-Image-Turbo-GGUF/resolve/main/z_image_turbo-Q5_K_M.gguf",
       "dest": "/opt/comfyui/models/diffusion_models/z_image_turbo-Q5_K_M.gguf",
-      "approx_size_gb": 4.5,
+      "approx_size_gb": 5.2,
       "commit_sha": "TODO_PIN_SHA"
     },
     {
+      "_comment": "Goes in clip/ (not text_encoders/) because CLIPLoaderGGUF scans clip/ for GGUF text encoders. Validated 2026-04-29.",
       "name": "Qwen3-4B text encoder (GGUF UD-Q5_K_XL)",
       "url": "https://huggingface.co/unsloth/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-UD-Q5_K_XL.gguf",
-      "dest": "/opt/comfyui/models/text_encoders/Qwen3-4B-UD-Q5_K_XL.gguf",
-      "approx_size_gb": 3.0,
+      "dest": "/opt/comfyui/models/clip/Qwen3-4B-UD-Q5_K_XL.gguf",
+      "approx_size_gb": 2.9,
       "commit_sha": "TODO_PIN_SHA"
     },
     {
-      "_comment": "Workflow references 'z_image_turbo_vae.safetensors' as filename. PLAN.md cites Tongyi-MAI/Z-Image-Turbo/ae.safetensors; verify the filename match before Phase 1 — may need to rename on download or change workflow.",
+      "_comment": "Source: vae/diffusion_pytorch_model.safetensors in Tongyi-MAI/Z-Image-Turbo. Renamed-on-download to z_image_turbo_vae.safetensors to match what the workflow's VAELoader nodes reference. Validated 2026-04-29.",
       "name": "Z-Image VAE",
-      "url": "https://huggingface.co/Tongyi-MAI/Z-Image-Turbo/resolve/main/ae.safetensors",
+      "url": "https://huggingface.co/Tongyi-MAI/Z-Image-Turbo/resolve/main/vae/diffusion_pytorch_model.safetensors",
       "dest": "/opt/comfyui/models/vae/z_image_turbo_vae.safetensors",
-      "approx_size_gb": 0.3,
+      "approx_size_gb": 0.16,
       "commit_sha": "TODO_PIN_SHA"
     },
     {
-      "_comment": "SAM3 source not specified in PLAN.md — discover correct repo before Phase 1. Civitai workflow author used a fp16 quant.",
+      "_comment": "Source URL discovered in ComfyUI-Easy-Sam3 README (yolain/sam3-safetensors). Goes in models/sam3/ — that's where easy sam3ModelLoader scans. Validated 2026-04-29.",
       "name": "SAM3 fp16",
-      "url": "TODO_FIND_HF_URL/sam3-fp16.safetensors",
-      "dest": "/opt/comfyui/models/sam/sam3-fp16.safetensors",
-      "approx_size_gb": 1.5,
+      "url": "https://huggingface.co/yolain/sam3-safetensors/resolve/main/sam3-fp16.safetensors",
+      "dest": "/opt/comfyui/models/sam3/sam3-fp16.safetensors",
+      "approx_size_gb": 1.7,
       "commit_sha": "TODO_PIN_SHA"
     },
     {
-      "_comment": "JoyCaption is a multi-file model bundle. The custom node will fetch its own deps on first run if not cached; revisit caching strategy before Phase 1.",
-      "name": "JoyCaption (joycaption-beta-one)",
+      "_comment": "Civitai-gated (model 2253986). Requires CIVITAI_TOKEN env var in the running container; deploy.py forwards it from local .env. Token sent as Authorization: Bearer header (not query string) to keep it out of redirect chains, server logs, and pget output. Replaceable: any other ZImageTurbo character LoRA can be swapped in by changing url + dest filename, then re-running the workflow against the new lora_1 name.",
+      "name": "d4ra character LoRA (Z-Image Turbo)",
+      "url": "https://civitai.com/api/download/models/2537301",
+      "dest": "/opt/comfyui/models/loras/d4ra.safetensors",
+      "approx_size_gb": 0.082,
+      "auth": "civitai",
+      "commit_sha": "TODO_PIN_SHA"
+    },
+    {
+      "_comment": "DEFERRED: workflows/headswap.json bypasses JoyCaption entirely. The 1038lab/ComfyUI-JoyCaption node has a transformers-version bug — image.resize() receives a SizeDict instead of an (w,h) int tuple, raising TypeError. Re-enable by either pinning the custom node to a known-good revision or patching the resize call. The MULTI_FILE_BUNDLE sentinel makes scripts/download_weights.py skip this entry.",
+      "name": "JoyCaption (joycaption-beta-one) — DEFERRED",
       "url": "MULTI_FILE_BUNDLE",
       "dest": "/opt/comfyui/models/joycaption/",
-      "approx_size_gb": 8.0,
+      "approx_size_gb": 16.0,
       "commit_sha": "TODO_PIN_SHA"
     }
   ]

@@ -44,8 +44,27 @@ class Predictor(BasePredictor):
             return
         if not COMFYUI_DIR.exists():
             return
+        # Weights aren't baked into the image (see cog.yaml comment) — fetch them
+        # from weights.json before ComfyUI starts. Idempotent: skips files
+        # already on disk.
+        self._download_weights()
         self.comfyui_proc = self._start_comfyui()
         self._wait_for_comfyui(timeout=COMFYUI_BOOT_TIMEOUT)
+
+    def _download_weights(self) -> None:
+        script = P(__file__).parent / "scripts" / "download_weights.py"
+        if not script.exists():
+            return
+        # Run with the project root as cwd so weights.json resolves correctly.
+        result = subprocess.run(
+            ["python", str(script)], cwd=str(P(__file__).parent),
+            capture_output=False,
+        )
+        if result.returncode != 0:
+            # download_weights logs its own failures and is best-effort. We let
+            # ComfyUI start anyway — the workflow will surface the missing-file
+            # error as a clear validation message rather than a silent hang.
+            print(f"[predict] download_weights.py exited {result.returncode}; continuing", flush=True)
 
     def predict(
         self,

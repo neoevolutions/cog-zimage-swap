@@ -5,6 +5,9 @@ Subcommands:
   setup           Register your local SSH public key with vast.ai (one-time).
   find            Dry-run: list top-N matching offers per deploy.yaml filters. Free.
   run             Provision an instance, open SSH tunnel on local_port, arm guardrails.
+  tunnel [id]     (Re)open SSH tunnel to a running instance — use after IP/network
+                  changes (VPN reconnect, etc.) or when the local tunnel process died.
+                  Defaults to the sole running instance. --lan binds on 0.0.0.0.
   destroy <id>    Kill an instance.
   status          Show your active instances.
 
@@ -161,36 +164,52 @@ def _onstart_cmd() -> str:
       - redirects to /var/log/cog.log so failures are diagnosable via SSH
       - python comes from pyenv shims set up at image build time
     """
+    # cog.server.http only accepts --host (no --port flag); it always binds 5000.
+    # Our --env "-p 5000:5000" mapping handles the port routing.
     return (
         "setsid -f bash -c "
         "'cd /src; exec python -m cog.server.http "
-        "--host 0.0.0.0 --port 5000 "
+        "--host 0.0.0.0 "
         "> /var/log/cog.log 2>&1 < /dev/null'"
     )
 
 
 def create_instance(offer_id: int, image: str, disk_gb: int) -> int:
+    # vastai 1.0.7's CLI has a typo bug: passing --direct produces the runtype
+    # string "ssh_direc ssh_proxy" (missing the 't'). The vast.ai backend
+    # tokenizes runtype on whitespace, doesn't recognize "ssh_direc", and
+    # silently falls back to ssh_proxy (gateway) mode. Result: every instance
+    # ended up routed through ssh*.vast.ai, hitting the gateway's per-key
+    # cache lag and failing with "Permission denied (publickey)".
+    # See vastai/cli/util.py:685 and vastai/cli/commands/instances.py:116.
+    # Workaround: bypass the buggy CLI and call the SDK directly with the
+    # correct runtype spelling.
     print(f">>> creating instance from offer {offer_id} with image {image}")
-    out = vastai(
-        "create", "instance", str(offer_id),
-        "--image", image,
-        "--disk", str(disk_gb),
-        "--ssh",
-        # --direct bypasses vast.ai's SSH gateway proxy. The host's actual IP
-        # is used for both SSH and mapped ports. Avoids the gateway's per-instance
-        # SSH-key cache lag (which produced "Permission denied (publickey)" on
-        # ssh3 for keys that worked on ssh2 — same key, different cache state).
-        # Requires the offer's direct_port_count >= ports we map; deploy.yaml's
-        # min_direct_port_count filter selects for that.
-        "--direct",
-        # vastai bundles env vars + port mappings into a single --env arg
-        # (docker-style flags inside one quoted string).
-        # cog API on 5000; ComfyUI UI on 8188.
-        "--env", "-p 5000:5000 -p 8188:8188",
-        "--onstart-cmd", _onstart_cmd(),
+    from vastai.sdk import VastAI
+
+    sdk = VastAI(api_key=get_api_key())
+    # parse_env in vastai/cli/util.py turns "-p 5000:5000 -p 8188:8188" into
+    # this dict shape; reproduce it directly for the SDK call.
+    env = {"-p 5000:5000": "1", "-p 8188:8188": "1"}
+    # Forward CIVITAI_TOKEN if set in local .env. predict.py setup() reads it
+    # to download Civitai-gated weights (e.g. character LoRAs). Sent over the
+    # vast.ai create-instance API request — they store env vars on the
+    # instance metadata. If you don't want the token in vast.ai's API logs,
+    # leave CIVITAI_TOKEN unset and download Civitai weights manually after
+    # the instance is up.
+    civitai_token = os.environ.get("CIVITAI_TOKEN", "").strip()
+    if civitai_token:
+        env["CIVITAI_TOKEN"] = civitai_token
+    out = sdk.create_instance(
+        id=offer_id,
+        image=image,
+        disk=disk_gb,
+        env=env,
+        runtype="ssh_direct ssh_proxy",
+        onstart_cmd=_onstart_cmd(),
     )
     if not isinstance(out, dict) or "new_contract" not in out:
-        sys.exit(f"vastai create returned unexpected payload: {out}")
+        sys.exit(f"vastai SDK create_instance returned unexpected payload: {out}")
     return int(out["new_contract"])
 
 
@@ -215,6 +234,45 @@ def get_instance(instance_id: int) -> dict:
     if isinstance(out, list):
         return out[0] if out else {}
     return out or {}
+
+
+def attach_ssh_to_instance(instance_id: int, ssh_pub_key: str, api_key: str) -> bool:
+    """Force-sync an SSH pubkey to a specific running instance.
+
+    Vast.ai injects authorized_keys at create-time using a snapshot of the
+    account's keys. That snapshot can be stale on hosts with slow key sync,
+    causing 'Permission denied (publickey)' on every attempt even though the
+    key is registered on the account. POSTing to /api/v0/instances/<id>/ssh/
+    pushes the key to the specific host bypassing the cache lag.
+
+    Returns True on success, False on failure (logged but non-fatal — caller
+    can still try authenticating).
+    """
+    body = json.dumps({"ssh_key": ssh_pub_key}).encode()
+    req = urllib.request.Request(
+        f"https://console.vast.ai/api/v0/instances/{instance_id}/ssh/",
+        data=body,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            print(f">>> attached SSH key to instance {instance_id} (HTTP {resp.status})")
+            return True
+    except urllib.error.HTTPError as e:
+        msg = e.read().decode(errors="replace")[:300]
+        # 400 "duplicate" or "already attached" is fine — key was already there.
+        if e.code == 400 and ("duplicate" in msg.lower() or "already" in msg.lower()):
+            print(f">>> key already attached to instance {instance_id}")
+            return True
+        print(f"!!! attach_ssh_to_instance HTTP {e.code}: {msg}", file=sys.stderr)
+        return False
+    except (urllib.error.URLError, TimeoutError) as e:
+        print(f"!!! attach_ssh_to_instance failed: {e}", file=sys.stderr)
+        return False
 
 
 TERMINAL_FAILURE_STATUSES = {"exited", "offline", "error"}
@@ -258,26 +316,218 @@ def wait_for_ssh(instance_id: int, timeout_s: int) -> tuple[str, int]:
     )
 
 
-def open_tunnel(ssh_host: str, ssh_port: int, ssh_key: str, local_port: int) -> int:
+def _ssh_base_opts() -> list[str]:
+    """SSH options for ephemeral vast.ai hosts.
+
+    - accept-new/no host check: gateway ports recycle across instances with
+      different host keys; pinning fingerprints is meaningless and trips strict
+      mode on every reuse.
+    - IdentitiesOnly=yes: prevents ssh from offering every key in ssh-agent
+      (which can exhaust the server's MaxAuthTries before the right one is
+      tried, manifesting as "Permission denied (publickey)" even when -i
+      points at the right key).
+    """
+    return [
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "UserKnownHostsFile=/dev/null",
+        "-o", "LogLevel=ERROR",
+        "-o", "IdentitiesOnly=yes",
+    ]
+
+
+def _ssh_auth_probe(ssh_host: str, ssh_port: int, ssh_key: str) -> tuple[bool, str]:
+    """Run a synchronous `echo ok` over SSH with -vv. Returns (ok, verbose_stderr).
+    Single-shot; for transient-error retry use _ssh_wait_for_auth.
+    """
+    cmd = [
+        "ssh",
+        "-i", expand_path(ssh_key),
+        "-p", str(ssh_port),
+        "-vv",
+        *_ssh_base_opts(),
+        "-o", "BatchMode=yes",
+        "-o", "ConnectTimeout=10",
+        f"root@{ssh_host}",
+        "echo ok",
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+    except subprocess.TimeoutExpired:
+        return False, "ssh probe timed out after 20s"
+    ok = result.returncode == 0 and "ok" in (result.stdout or "")
+    return ok, result.stderr or ""
+
+
+def _is_transient_ssh_error(stderr: str) -> bool:
+    """Tell apart errors worth retrying from ones that won't fix themselves.
+
+    Retry-worthy:
+    - TCP-level failures: sshd not yet bound inside the container (30–90s window).
+    - 'Permission denied (publickey)': vast.ai's own login banner literally
+      says "If authentication fails, try again after a few seconds, and
+      double check your ssh key" — their per-host authorized_keys sync has a
+      lag. We attach_ssh_to_instance upstream to push the key explicitly,
+      but propagation still takes a few seconds after that.
+
+    Hopeless: malformed args, missing key file, etc. — those won't appear in
+    stderr from a well-formed -vv probe and would surface as different
+    failures earlier.
+    """
+    retry_markers = (
+        "Connection refused",
+        "Connection timed out",
+        "Connection reset",
+        "No route to host",
+        "Host is down",
+        "Network is unreachable",
+        "kex_exchange_identification",  # sshd accepted TCP but closed before banner
+        "Permission denied (publickey)",  # vast.ai key-sync lag
+    )
+    return any(m in stderr for m in retry_markers)
+
+
+def _ssh_wait_for_auth(ssh_host: str, ssh_port: int, ssh_key: str,
+                       timeout_s: int = 180) -> tuple[bool, str]:
+    """Probe auth, retrying on transient TCP-level errors. Bails immediately on
+    auth-level rejection (Permission denied) since that won't fix itself.
+    """
+    deadline = time.time() + timeout_s
+    last_verbose = ""
+    attempt = 0
+    while time.time() < deadline:
+        attempt += 1
+        ok, verbose = _ssh_auth_probe(ssh_host, ssh_port, ssh_key)
+        last_verbose = verbose
+        if ok:
+            if attempt > 1:
+                print(f">>> ssh auth ok on attempt {attempt}")
+            return True, verbose
+        if not _is_transient_ssh_error(verbose):
+            # Permission denied or similar — sshd is up and actively rejecting.
+            return False, verbose
+        if attempt == 1:
+            print(f">>> sshd not yet listening on {ssh_host}:{ssh_port}; retrying for {timeout_s}s")
+        time.sleep(min(5 + attempt * 2, 15))
+    return False, last_verbose
+
+
+def diagnose_container(instance_id: int, ssh_key: str, what: str = "all") -> None:
+    """Inspect container state via SSH (vast.ai's `execute` API is whitelisted).
+
+    `what` selects sections: 'ssh', 'cog', or 'all'. Uses SSH directly because
+    vast.ai's execute endpoint rejects arbitrary commands ("Invalid command
+    given") even for `echo hello`. SSH works as long as the host accepted our
+    pubkey (which we can confirm via `vastai logs`).
+    """
+    try:
+        ssh_host, ssh_port, _mode = select_ssh_endpoint(instance_id)
+    except Exception as e:
+        print(f"!!! could not resolve ssh endpoint for diagnostic: {e}", file=sys.stderr)
+        return
+    sections = []
+    if what in ("ssh", "all"):
+        sections.append(
+            "echo '--- /root/.ssh/ ---'; ls -la /root/.ssh/ 2>&1; "
+            "echo '--- authorized_keys ---'; cat /root/.ssh/authorized_keys 2>&1; "
+            "echo '--- sshd processes ---'; ps aux | grep -E '[s]shd' 2>&1"
+        )
+    if what in ("cog", "all"):
+        # ss isn't installed on slim images; use netstat or /proc fallback.
+        sections.append(
+            "echo '--- cog/python processes ---'; ps aux | grep -E '[p]ython|[c]og' | head -10; "
+            "echo '--- listeners on 5000/8188 ---'; "
+            "(netstat -tlnp 2>/dev/null || ss -tlnp 2>/dev/null) | grep -E ':(5000|8188)\\b' || echo '(no listeners)'; "
+            "echo '--- /var/log/cog.log (last 80 lines) ---'; tail -n 80 /var/log/cog.log 2>&1; "
+            "echo '--- /src contents ---'; ls -la /src/ 2>&1 | head -25; "
+            "echo '--- onstart log ---'; "
+            "tail -n 40 /var/log/onstart.log 2>/dev/null || cat /root/onstart.log 2>/dev/null || "
+            "tail -n 40 /tmp/onstart.log 2>/dev/null || echo '(no onstart log found)'"
+        )
+    cmd = "; ".join(sections)
+    ssh_cmd = [
+        "ssh",
+        "-i", expand_path(ssh_key),
+        "-p", str(ssh_port),
+        *_ssh_base_opts(),
+        "-o", "ConnectTimeout=10",
+        f"root@{ssh_host}",
+        cmd,
+    ]
+    print(f">>> diagnosing container ({what}) via ssh root@{ssh_host}:{ssh_port}...")
+    try:
+        result = subprocess.run(ssh_cmd, capture_output=True, text=True, timeout=30)
+    except subprocess.TimeoutExpired:
+        print("!!! diagnostic ssh timed out after 30s", file=sys.stderr)
+        return
+    print(f"--- container state ({what}) ---")
+    if result.stdout:
+        print(result.stdout)
+    if result.returncode != 0:
+        print(f"(ssh exit {result.returncode})")
+        if result.stderr:
+            print(f"stderr: {result.stderr.strip()}")
+    print("--- end ---")
+
+
+def select_ssh_endpoint(instance_id: int) -> tuple[str, int, str]:
+    """Pick the best SSH endpoint for an instance: direct host > proxy gateway.
+
+    vast.ai always sets ssh_host/ssh_port to the gateway proxy (ssh*.vast.ai)
+    in the metadata, even on hosts that support direct connections. But for
+    hosts with static_ip=true and a port-22 mapping in `ports`, we can SSH
+    straight to public_ipaddr:host_port and skip the gateway's key-cache lag.
+
+    Returns (host, port, mode) where mode is 'direct' or 'proxy' for logging.
+    """
+    inst = get_instance(instance_id)
+    public_ip = inst.get("public_ipaddr")
+    ports = inst.get("ports") or {}
+    ssh_mapping = ports.get("22/tcp")
+    if public_ip and isinstance(ssh_mapping, list) and ssh_mapping:
+        host_port = ssh_mapping[0].get("HostPort")
+        if host_port:
+            return public_ip, int(host_port), "direct"
+    # Fallback: use vast.ai's gateway proxy
+    return inst["ssh_host"], int(inst["ssh_port"]), "proxy"
+
+
+def open_tunnel(ssh_host: str, ssh_port: int, ssh_key: str, local_port: int,
+                instance_id: int | None = None, bind_addr: str = "localhost") -> int:
+    """Open SSH tunnel forwarding local 5000+8188 to the container's same ports.
+
+    bind_addr defaults to localhost (only this Mac can connect). Pass "0.0.0.0"
+    to bind on all interfaces so other devices on the LAN can reach the
+    tunnel — requires GatewayPorts=yes (set automatically below).
+    """
     # Forward both cog's HTTP API (5000) and ComfyUI's UI (8188) — the latter
     # so workflow JSON re-export can be done in a browser without a separate
     # SSH command. ComfyUI is spawned by cog setup() and binds 0.0.0.0:8188
     # inside the container; localhost:8188 from inside the SSH session reaches it.
+    extra_opts: list[str] = []
+    if bind_addr != "localhost":
+        # OpenSSH ignores non-localhost bind addresses unless GatewayPorts=yes.
+        extra_opts.extend(["-o", "GatewayPorts=yes"])
     cmd = [
         "ssh",
         "-i", expand_path(ssh_key),
         "-p", str(ssh_port),
         "-N", "-f",
-        "-o", "StrictHostKeyChecking=accept-new",
+        *_ssh_base_opts(),
         "-o", "ServerAliveInterval=30",
-        "-L", f"{local_port}:localhost:5000",
-        "-L", "8188:localhost:8188",
+        *extra_opts,
+        "-L", f"{bind_addr}:{local_port}:localhost:5000",
+        "-L", f"{bind_addr}:8188:localhost:8188",
         f"root@{ssh_host}",
     ]
     print(f">>> opening tunnel: {' '.join(shlex.quote(c) for c in cmd)}")
-    subprocess.run(cmd, check=True)
+    try:
+        subprocess.run(cmd, check=True)
+    except subprocess.CalledProcessError:
+        if instance_id is not None:
+            diagnose_container(instance_id, ssh_key, what="ssh")
+        raise
     pgrep = subprocess.run(
-        ["pgrep", "-f", f"-L {local_port}:localhost:5000"],
+        ["pgrep", "-f", f":{local_port}:localhost:5000"],
         capture_output=True, text=True,
     )
     pid = int(pgrep.stdout.strip().split("\n")[0]) if pgrep.stdout.strip() else 0
@@ -324,19 +574,38 @@ def verify_public_reachability(instance_id: int, timeout_s: int = 90) -> None:
     )
 
 
-def health_check(local_port: int, timeout_min: int) -> None:
+def health_check(local_port: int, timeout_min: int, instance_id: int | None = None,
+                 ssh_key: str | None = None) -> None:
     url = f"http://localhost:{local_port}/health-check"
     deadline = time.time() + timeout_min * 60
+    started = time.time()
     print(f">>> health-checking {url} (timeout {timeout_min}m)")
+    last_err = ""
+    poll_count = 0
     while time.time() < deadline:
+        poll_count += 1
         try:
             with urllib.request.urlopen(url, timeout=5) as r:
                 if r.status == 200:
                     print(">>> instance reports ready")
                     return
-        except (urllib.error.URLError, ConnectionRefusedError, TimeoutError):
-            pass
+                last_err = f"HTTP {r.status}"
+        # ConnectionResetError happens when ssh forwards to a dead/binding-but-not-yet-listening
+        # port on the remote, OR when cog accepts and then drops mid-response. OSError covers
+        # broken pipes, host unreachable, etc. — cog isn't ready yet, retry.
+        except (urllib.error.URLError, ConnectionRefusedError, ConnectionResetError,
+                TimeoutError, OSError) as e:
+            last_err = type(e).__name__
+        # Run a one-time diagnostic ~60s in if we're still failing; gives us early
+        # visibility into whether cog ever started instead of waiting the full 12 min.
+        if poll_count == 6 and instance_id is not None and ssh_key:
+            elapsed = int(time.time() - started)
+            print(f">>> still failing after {elapsed}s ({last_err}); pulling cog state...")
+            diagnose_container(instance_id, ssh_key, what="cog")
         time.sleep(10)
+    if instance_id is not None and ssh_key:
+        print(f">>> health-check timed out after {timeout_min}m (last: {last_err}); final diagnostic:")
+        diagnose_container(instance_id, ssh_key, what="all")
     sys.exit(f"instance did not become healthy within {timeout_min}m — destroy and retry")
 
 
@@ -362,7 +631,7 @@ def schedule_self_destruct(instance_id: int, ssh_host: str, ssh_port: int,
         "ssh",
         "-i", expand_path(ssh_key),
         "-p", str(ssh_port),
-        "-o", "StrictHostKeyChecking=accept-new",
+        *_ssh_base_opts(),
         "-o", "ConnectTimeout=10",
         f"root@{ssh_host}",
         remote,
@@ -406,8 +675,40 @@ def cmd_setup(args: argparse.Namespace) -> int:
         sys.exit(f"public key not found: {pub_key_path}")
     pub = pub_key_path.read_text().strip()
     print(f">>> registering {pub_key_path} with vast.ai")
-    vastai("create", "ssh-key", pub, json_output=False)
-    print(">>> done. Verify with: vastai show ssh-keys")
+    # Direct API call: the `vastai` CLI shim ignores our VAST_API_KEY env var
+    # (it expects ~/.config/vastai/vast_api_key) so it returns "Failed with
+    # error 403" mixed into stdout while still exiting 0 — silently no-ops.
+    api_key = get_api_key()
+    body = json.dumps({"ssh_key": pub}).encode()
+    req = urllib.request.Request(
+        "https://console.vast.ai/api/v0/ssh/",
+        data=body,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            print(f">>> registered (HTTP {resp.status})")
+    except urllib.error.HTTPError as e:
+        msg = e.read().decode(errors="replace")
+        if e.code == 400 and "duplicate" in msg.lower():
+            print(">>> already registered (no-op)")
+        else:
+            sys.exit(f"failed to register key (HTTP {e.code}): {msg}")
+    # Verify and show all keys on the account so the user can sanity-check.
+    list_req = urllib.request.Request(
+        "https://console.vast.ai/api/v0/ssh/",
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    keys = json.load(urllib.request.urlopen(list_req, timeout=15))
+    print(f">>> {len(keys)} key(s) on account:")
+    for k in keys:
+        pubk = k.get("public_key", "")
+        # Show fingerprint + comment for easy identification
+        print(f"  id={k.get('id')}  {pubk.split()[0] if pubk else '?'}  {pubk.split()[-1] if pubk and len(pubk.split()) > 2 else ''}")
     return 0
 
 
@@ -452,15 +753,62 @@ def cmd_run(args: argparse.Namespace) -> int:
     instance_id = create_instance(int(offer["id"]), image, cfg["disk_gb"])
     register_atexit_cleanup(instance_id)
     provision_timeout_s = int(cfg.get("provision_timeout_min", 30)) * 60
-    ssh_host, ssh_port = wait_for_ssh(instance_id, timeout_s=provision_timeout_s)
+    wait_for_ssh(instance_id, timeout_s=provision_timeout_s)
+
+    # Prefer the host's public IP + mapped port 22 over vast.ai's gateway.
+    # The gateway has a per-key cache lag bug that causes spurious
+    # "Permission denied (publickey)" rejections even with a valid key.
+    ssh_host, ssh_port, mode = select_ssh_endpoint(instance_id)
+    print(f">>> ssh endpoint: {mode} root@{ssh_host}:{ssh_port}")
+
+    # Force-attach the SSH pubkey to this specific instance. Account-level
+    # registration alone has a known per-host sync lag that produces
+    # "Permission denied (publickey)" indefinitely on some hosts; this API
+    # call pushes the key to the host directly.
+    pub_key_path = Path(expand_path(cfg["ssh_key"] + ".pub"))
+    if pub_key_path.exists():
+        attach_ssh_to_instance(
+            instance_id, pub_key_path.read_text().strip(), get_api_key(),
+        )
+
+    # Probe auth. wait_for_ssh returns when vast.ai's metadata says
+    # status=running, but sshd inside the container takes another 30–90s to
+    # bind, and the attach above takes a few more seconds to propagate to
+    # authorized_keys. Both Connection refused and Permission denied are
+    # treated as transient here.
+    ok, verbose = _ssh_wait_for_auth(ssh_host, ssh_port, cfg["ssh_key"])
+    if not ok and mode == "direct":
+        print(f"!!! direct SSH probe failed; verbose follows", file=sys.stderr)
+        print(verbose, file=sys.stderr)
+        inst = get_instance(instance_id)
+        gw_host, gw_port = inst["ssh_host"], int(inst["ssh_port"])
+        print(f">>> falling back to gateway {gw_host}:{gw_port}", file=sys.stderr)
+        ok2, verbose2 = _ssh_wait_for_auth(gw_host, gw_port, cfg["ssh_key"])
+        if ok2:
+            print(f">>> gateway auth ok — switching endpoint")
+            ssh_host, ssh_port, mode = gw_host, gw_port, "proxy"
+        else:
+            print(f"!!! gateway SSH probe ALSO failed; verbose follows", file=sys.stderr)
+            print(verbose2, file=sys.stderr)
+            sys.exit(
+                "SSH unreachable on both direct and gateway after retry window. "
+                "If verbose shows 'Permission denied', re-run `deploy.py setup` "
+                "and retry. If 'Connection refused' kept repeating, the host's "
+                "container failed to start sshd — destroy this instance "
+                "and pick a different offer."
+            )
+    elif not ok:
+        print(f"!!! SSH probe failed; verbose follows", file=sys.stderr)
+        print(verbose, file=sys.stderr)
+        sys.exit("SSH unreachable — see verbose output above")
 
     schedule_self_destruct(
         instance_id, ssh_host, ssh_port,
         cfg["ssh_key"], cfg["max_session_hours"], get_api_key(),
     )
 
-    open_tunnel(ssh_host, ssh_port, cfg["ssh_key"], cfg["local_port"])
-    health_check(cfg["local_port"], cfg["health_check_timeout_min"])
+    open_tunnel(ssh_host, ssh_port, cfg["ssh_key"], cfg["local_port"], instance_id)
+    health_check(cfg["local_port"], cfg["health_check_timeout_min"], instance_id, cfg["ssh_key"])
     verify_public_reachability(instance_id, timeout_s=90)
 
     public = public_endpoints(instance_id)
@@ -509,6 +857,118 @@ def cmd_destroy(args: argparse.Namespace) -> int:
     return 0
 
 
+def _kill_existing_tunnel(local_port: int) -> int:
+    """Kill any local ssh tunnel processes forwarding this local_port.
+
+    Catches both the recorded TUNNEL_PID_FILE entry and any orphans (e.g. a
+    tunnel started manually in another terminal). Returns the count killed.
+    """
+    killed = 0
+    if TUNNEL_PID_FILE.exists():
+        try:
+            pid = int(TUNNEL_PID_FILE.read_text().strip())
+            os.kill(pid, signal.SIGTERM)
+            print(f">>> killed tunnel pid {pid} (from {TUNNEL_PID_FILE.name})")
+            killed += 1
+        except (ValueError, ProcessLookupError):
+            pass
+        TUNNEL_PID_FILE.unlink(missing_ok=True)
+    # Catch orphans by pattern. Match both "5000:..." and "localhost:5000:..."
+    # / "0.0.0.0:5000:..." -L formats.
+    result = subprocess.run(
+        ["pgrep", "-f", f":{local_port}:localhost:5000"],
+        capture_output=True, text=True,
+    )
+    for line in result.stdout.strip().splitlines():
+        try:
+            pid = int(line.strip())
+            os.kill(pid, signal.SIGTERM)
+            print(f">>> killed orphan tunnel pid {pid}")
+            killed += 1
+        except (ValueError, ProcessLookupError):
+            pass
+    return killed
+
+
+def _resolve_target_instance(arg_id: int | None) -> int:
+    """Pick the instance id for tunnel ops: explicit arg > sole running > error."""
+    if arg_id:
+        return arg_id
+    out = vastai("show", "instances")
+    if not isinstance(out, list) or not out:
+        sys.exit("no active instances; pass an instance id explicitly")
+    running = [i for i in out if i.get("actual_status") == "running"]
+    if not running:
+        statuses = ", ".join(f"{i['id']}={i.get('actual_status')}" for i in out)
+        sys.exit(f"no running instances ({statuses}); pass an instance id explicitly")
+    if len(running) > 1:
+        ids = ", ".join(str(i["id"]) for i in running)
+        sys.exit(f"multiple running instances ({ids}); pass one explicitly: deploy.py tunnel <id>")
+    return int(running[0]["id"])
+
+
+def _probe_tunnel(local_port: int, timeout_s: float = 4.0) -> bool:
+    """Quick TCP probe of the local tunnel endpoint."""
+    import socket
+    try:
+        with socket.create_connection(("localhost", local_port), timeout=timeout_s):
+            return True
+    except OSError:
+        return False
+
+
+def cmd_tunnel(args: argparse.Namespace) -> int:
+    """(Re)open the SSH tunnel to a running vast.ai instance.
+
+    Use this when:
+      - your laptop's IP changed (VPN reconnect, network swap) and the existing
+        tunnel went silent;
+      - the local ssh process died for any reason;
+      - you want to switch the tunnel to LAN-bound (--lan) so other devices
+        can reach the cog API + ComfyUI UI.
+
+    Resolves the instance's current SSH endpoint fresh each call, so direct
+    vs proxy host changes (host migration on vast.ai's side) are picked up
+    automatically.
+    """
+    cfg = load_config()
+    instance_id = _resolve_target_instance(args.instance_id)
+    print(f">>> target instance: {instance_id}")
+
+    _kill_existing_tunnel(cfg["local_port"])
+
+    ssh_host, ssh_port, mode = select_ssh_endpoint(instance_id)
+    print(f">>> ssh endpoint: {mode} root@{ssh_host}:{ssh_port}")
+
+    bind_addr = "0.0.0.0" if args.lan else "localhost"
+    open_tunnel(ssh_host, ssh_port, cfg["ssh_key"], cfg["local_port"],
+                instance_id=instance_id, bind_addr=bind_addr)
+
+    # Brief verification — sshd is up the moment open_tunnel returns, but cog
+    # may still be doing setup() if the instance just spawned. A miss here is
+    # common and not fatal.
+    if _probe_tunnel(cfg["local_port"]):
+        print(">>> tunnel verified: localhost:{} reachable".format(cfg["local_port"]))
+    else:
+        print("!!! tunnel opened but cog API not yet responding (may still be in setup)")
+
+    print()
+    if bind_addr == "localhost":
+        print(f"  cog API:  http://localhost:{cfg['local_port']}")
+        print(f"  ComfyUI:  http://localhost:8188")
+    else:
+        # Show the LAN IP so the user knows what to type from another device.
+        try:
+            import socket
+            lan_ip = socket.gethostbyname(socket.gethostname())
+        except OSError:
+            lan_ip = "<your-lan-ip>"
+        print(f"  cog API:  http://{lan_ip}:{cfg['local_port']}  (bound on 0.0.0.0)")
+        print(f"  ComfyUI:  http://{lan_ip}:8188")
+    print(f"  ssh:      ssh -i {cfg['ssh_key']} -p {ssh_port} root@{ssh_host}")
+    return 0
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     out = vastai("show", "instances")
     if not isinstance(out, list):
@@ -553,6 +1013,20 @@ def main(argv: list[str] | None = None) -> int:
     p_destroy = sub.add_parser("destroy", help="Destroy an instance by id")
     p_destroy.add_argument("instance_id", type=int)
     p_destroy.set_defaults(func=cmd_destroy)
+
+    p_tunnel = sub.add_parser(
+        "tunnel",
+        help="(Re)open SSH tunnel to a running instance after IP/network changes",
+    )
+    p_tunnel.add_argument(
+        "instance_id", type=int, nargs="?", default=None,
+        help="Instance id (defaults to the sole running instance if there's only one)",
+    )
+    p_tunnel.add_argument(
+        "--lan", action="store_true",
+        help="Bind tunnel on 0.0.0.0 so other devices on your LAN can reach it (default: localhost only)",
+    )
+    p_tunnel.set_defaults(func=cmd_tunnel)
 
     sub.add_parser("status", help="Show your vast.ai instances").set_defaults(func=cmd_status)
 
